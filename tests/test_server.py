@@ -95,3 +95,39 @@ def test_submit_order_rejects_empty_symbol() -> None:
             assert str(exc) == "invalid_symbol"
     finally:
         ctx.close()
+
+
+def test_submit_order_rejects_unsupported_exchange() -> None:
+    server = _server_module()
+    ctx = server.create_server_context(_settings())
+    try:
+        try:
+            server.submit_order(ctx, "kraken", "BTCUSDT", "BUY", 25.0)
+            raise AssertionError("expected ValueError")
+        except ValueError as exc:
+            assert str(exc) == "unsupported_exchange:kraken"
+    finally:
+        ctx.close()
+
+
+def test_execute_order_returns_not_implemented_when_live_mode() -> None:
+    server = _server_module()
+    config = _settings()
+    live_settings = config.__class__(
+        mcp_default_limit=config.mcp_default_limit,
+        mcp_max_limit=config.mcp_max_limit,
+        mcp_context_mode=config.mcp_context_mode,
+        dry_run=False,
+        exchanges_enabled=config.exchanges_enabled,
+        binance_api_base_url=config.binance_api_base_url,
+        binance_api_key=config.binance_api_key,
+        binance_api_secret=config.binance_api_secret,
+        require_confirmation_above_usd=config.require_confirmation_above_usd,
+    )
+    ctx = server.create_server_context(live_settings)
+    try:
+        result = server.submit_order(ctx, "binance", "BTCUSDT", "BUY", 25.0)
+        assert result["ok"] is False
+        assert result["error"] == "live_trading_not_implemented"
+    finally:
+        ctx.close()

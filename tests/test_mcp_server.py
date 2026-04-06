@@ -49,3 +49,30 @@ def test_confirm_pending_order_not_found_shape() -> None:
     assert result["ok"] is False
     assert result["tool"] == "confirm_pending_order"
     assert result["error"] == "confirmation_not_found"
+
+
+def test_submit_demo_order_live_mode_returns_top_level_error_envelope() -> None:
+    server = _mcp_server()
+    original = server._SETTINGS
+    original_ctx = server._CTX
+    server._SETTINGS = original.__class__(
+        mcp_default_limit=original.mcp_default_limit,
+        mcp_max_limit=original.mcp_max_limit,
+        mcp_context_mode=original.mcp_context_mode,
+        dry_run=False,
+        exchanges_enabled=original.exchanges_enabled,
+        binance_api_base_url=original.binance_api_base_url,
+        binance_api_key=original.binance_api_key,
+        binance_api_secret=original.binance_api_secret,
+        require_confirmation_above_usd=original.require_confirmation_above_usd,
+    )
+    server._CTX = server.create_server_context(server._SETTINGS)
+    try:
+        result = server.submit_demo_order(usd_size=25.0)
+        assert result["ok"] is False
+        assert result["tool"] == "submit_demo_order"
+        assert result["error"] == "live_trading_not_implemented"
+    finally:
+        server._CTX.close()
+        server._CTX = original_ctx
+        server._SETTINGS = original

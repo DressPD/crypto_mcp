@@ -22,7 +22,12 @@ class MCPContextMode(str, Enum):
 def _parse_bool(value: str | None, default: bool) -> bool:
     if value is None:
         return default
-    return value.strip().lower() in {"1", "true", "yes", "y", "on"}
+    normalized = value.strip().lower()
+    if normalized in {"1", "true", "yes", "y", "on"}:
+        return True
+    if normalized in {"0", "false", "no", "n", "off"}:
+        return False
+    return default
 
 
 def _parse_int(value: str | None, default: int) -> int:

@@ -75,6 +75,8 @@ def list_symbols(ctx: ServerContext, exchange: str, limit: int) -> list[dict[str
 def submit_order(
     ctx: ServerContext, exchange: str, symbol: str, side: str, usd_size: float
 ) -> dict[str, object]:
+    _ = _get_exchange_adapter(ctx, exchange)
+
     normalized_side = side.upper()
     if normalized_side not in {"BUY", "SELL"}:
         raise ValueError("invalid_side")
@@ -128,6 +130,14 @@ def confirm_order(ctx: ServerContext, confirmation_id: str) -> dict[str, object]
 
 
 def _execute_order(payload: dict[str, object]) -> dict[str, object]:
+    if not bool(payload.get("dry_run", True)):
+        return {
+            "ok": False,
+            "error": "live_trading_not_implemented",
+            "error_category": "internal",
+            "order": payload,
+        }
+
     return {
         "ok": True,
         "status": "accepted",
@@ -136,7 +146,7 @@ def _execute_order(payload: dict[str, object]) -> dict[str, object]:
     }
 
 
-def _get_exchange_adapter(ctx: ServerContext, exchange: str):
+def _get_exchange_adapter(ctx: ServerContext, exchange: str) -> BinanceAdapter:
     key = exchange.lower()
     if key not in ctx.adapters:
         raise ValueError(f"unsupported_exchange:{exchange}")

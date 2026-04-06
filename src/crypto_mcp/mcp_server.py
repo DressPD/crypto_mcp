@@ -59,7 +59,7 @@ def _safe_limit(value: int | None, default: int, maximum: int) -> int:
 
 
 def _request_context():
-    settings = load_settings()
+    settings = _SETTINGS
     if settings.mcp_context_mode == MCPContextMode.REQUEST.value:
         return create_server_context(settings), True
     return _CTX, False
@@ -72,7 +72,7 @@ def _close_if_request_context(ctx: Any, is_request: bool) -> None:
 
 @mcp.tool()
 def health() -> dict[str, object]:
-    settings = load_settings()
+    settings = _SETTINGS
     return _ok(
         "health",
         {
@@ -139,7 +139,13 @@ def submit_demo_order(
     ctx, is_request = _CTX, False
     try:
         result = submit_order(ctx, exchange, symbol, side, usd_size)
-        return _ok("submit_demo_order", result)
+        if bool(result.get("ok", True)):
+            return _ok("submit_demo_order", result)
+        return _err(
+            "submit_demo_order",
+            str(result.get("error", "submit_failed")),
+            str(result.get("error_category", "internal")),
+        )
     except ValueError as exc:
         return _err("submit_demo_order", str(exc), "validation")
     except Exception as exc:  # noqa: BLE001
