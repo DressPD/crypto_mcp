@@ -37,6 +37,19 @@ _SETTINGS = load_settings()
 _CTX = create_server_context(_SETTINGS)
 
 
+def _ok(tool: str, payload: object) -> dict[str, object]:
+    return {"ok": True, "tool": tool, "payload": payload}
+
+
+def _err(tool: str, error: str, category: str) -> dict[str, object]:
+    return {
+        "ok": False,
+        "tool": tool,
+        "error": error,
+        "error_category": category,
+    }
+
+
 def _safe_limit(value: int | None, default: int, maximum: int) -> int:
     if value is None:
         return default
@@ -60,17 +73,18 @@ def _close_if_request_context(ctx: Any, is_request: bool) -> None:
 @mcp.tool()
 def health() -> dict[str, object]:
     settings = load_settings()
-    return {
-        "ok": True,
-        "tool": "health",
-        "service": "crypto-mcp",
-        "time_utc": datetime.now(timezone.utc).isoformat(),
-        "dry_run": settings.dry_run,
-        "mcp_default_limit": settings.mcp_default_limit,
-        "mcp_max_limit": settings.mcp_max_limit,
-        "mcp_context_mode": settings.mcp_context_mode,
-        "exchanges_enabled": settings.exchanges_enabled,
-    }
+    return _ok(
+        "health",
+        {
+            "service": "crypto-mcp",
+            "time_utc": datetime.now(timezone.utc).isoformat(),
+            "dry_run": settings.dry_run,
+            "mcp_default_limit": settings.mcp_default_limit,
+            "mcp_max_limit": settings.mcp_max_limit,
+            "mcp_context_mode": settings.mcp_context_mode,
+            "exchanges_enabled": settings.exchanges_enabled,
+        },
+    )
 
 
 @mcp.tool()
@@ -78,19 +92,9 @@ def list_exchanges() -> dict[str, object]:
     ctx, is_request = _request_context()
     try:
         items = list_supported_exchanges(ctx)
-        return {
-            "ok": True,
-            "tool": "list_exchanges",
-            "count": len(items),
-            "items": items,
-        }
+        return _ok("list_exchanges", {"count": len(items), "items": items})
     except Exception as exc:  # noqa: BLE001
-        return {
-            "ok": False,
-            "tool": "list_exchanges",
-            "error": str(exc),
-            "error_category": "internal",
-        }
+        return _err("list_exchanges", str(exc), "internal")
     finally:
         _close_if_request_context(ctx, is_request)
 
@@ -100,25 +104,11 @@ def get_price(exchange: str, symbol: str) -> dict[str, object]:
     ctx, is_request = _request_context()
     try:
         result = get_market_price(ctx, exchange, symbol)
-        return {
-            "ok": True,
-            "tool": "get_price",
-            "result": result,
-        }
+        return _ok("get_price", result)
     except ValueError as exc:
-        return {
-            "ok": False,
-            "tool": "get_price",
-            "error": str(exc),
-            "error_category": "validation",
-        }
+        return _err("get_price", str(exc), "validation")
     except Exception as exc:  # noqa: BLE001
-        return {
-            "ok": False,
-            "tool": "get_price",
-            "error": str(exc),
-            "error_category": "provider",
-        }
+        return _err("get_price", str(exc), "provider")
     finally:
         _close_if_request_context(ctx, is_request)
 
@@ -130,31 +120,14 @@ def list_exchange_symbols(exchange: str, limit: int | None = None) -> dict[str, 
     ctx, is_request = _request_context()
     try:
         items = list_symbols(ctx, exchange, capped_limit)
-        return {
-            "ok": True,
-            "tool": "list_exchange_symbols",
-            "count": len(items),
-            "limit": capped_limit,
-            "items": items,
-        }
+        return _ok(
+            "list_exchange_symbols",
+            {"count": len(items), "limit": capped_limit, "items": items},
+        )
     except ValueError as exc:
-        return {
-            "ok": False,
-            "tool": "list_exchange_symbols",
-            "error": str(exc),
-            "error_category": "validation",
-            "count": 0,
-            "items": [],
-        }
+        return _err("list_exchange_symbols", str(exc), "validation")
     except Exception as exc:  # noqa: BLE001
-        return {
-            "ok": False,
-            "tool": "list_exchange_symbols",
-            "error": str(exc),
-            "error_category": "provider",
-            "count": 0,
-            "items": [],
-        }
+        return _err("list_exchange_symbols", str(exc), "provider")
     finally:
         _close_if_request_context(ctx, is_request)
 
@@ -163,42 +136,32 @@ def list_exchange_symbols(exchange: str, limit: int | None = None) -> dict[str, 
 def submit_demo_order(
     exchange: str = "binance", symbol: str = "BTCUSDT", side: str = "BUY", usd_size: float = 25.0
 ) -> dict[str, object]:
-    ctx, is_request = _request_context()
+    ctx, is_request = _CTX, False
     try:
         result = submit_order(ctx, exchange, symbol, side, usd_size)
-        return {
-            "ok": True,
-            "tool": "submit_demo_order",
-            "result": result,
-        }
+        return _ok("submit_demo_order", result)
+    except ValueError as exc:
+        return _err("submit_demo_order", str(exc), "validation")
     except Exception as exc:  # noqa: BLE001
-        return {
-            "ok": False,
-            "tool": "submit_demo_order",
-            "error": str(exc),
-            "error_category": "internal",
-        }
+        return _err("submit_demo_order", str(exc), "internal")
     finally:
         _close_if_request_context(ctx, is_request)
 
 
 @mcp.tool()
 def confirm_pending_order(confirmation_id: str) -> dict[str, object]:
-    ctx, is_request = _request_context()
+    ctx, is_request = _CTX, False
     try:
         result = confirm_order(ctx, confirmation_id)
-        return {
-            "ok": result.get("ok", False),
-            "tool": "confirm_pending_order",
-            "result": result,
-        }
+        if result.get("ok", False):
+            return _ok("confirm_pending_order", result)
+        return _err(
+            "confirm_pending_order",
+            str(result.get("error", "confirmation_failed")),
+            str(result.get("error_category", "validation")),
+        )
     except Exception as exc:  # noqa: BLE001
-        return {
-            "ok": False,
-            "tool": "confirm_pending_order",
-            "error": str(exc),
-            "error_category": "internal",
-        }
+        return _err("confirm_pending_order", str(exc), "internal")
     finally:
         _close_if_request_context(ctx, is_request)
 

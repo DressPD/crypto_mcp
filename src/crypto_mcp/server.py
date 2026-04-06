@@ -75,10 +75,21 @@ def list_symbols(ctx: ServerContext, exchange: str, limit: int) -> list[dict[str
 def submit_order(
     ctx: ServerContext, exchange: str, symbol: str, side: str, usd_size: float
 ) -> dict[str, object]:
+    normalized_side = side.upper()
+    if normalized_side not in {"BUY", "SELL"}:
+        raise ValueError("invalid_side")
+
+    normalized_symbol = symbol.upper().strip()
+    if not normalized_symbol:
+        raise ValueError("invalid_symbol")
+
+    if usd_size <= 0:
+        raise ValueError("invalid_usd_size")
+
     payload = {
         "exchange": exchange,
-        "symbol": symbol.upper(),
-        "side": side.upper(),
+        "symbol": normalized_symbol,
+        "side": normalized_side,
         "usd_size": usd_size,
         "dry_run": ctx.settings.dry_run,
     }
