@@ -22,6 +22,7 @@ dev = [
 [project.scripts]
 crypto-mcp = "crypto_mcp.main:main"
 crypto-mcp-server = "crypto_mcp.mcp_server:main"
+crypto-mcp-agent = "crypto_mcp.agent_main:main"
 
 [tool.setuptools]
 package-dir = {"" = "src"}
