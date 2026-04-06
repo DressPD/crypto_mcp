@@ -1,5 +1,6 @@
 from typing import Any
 import importlib
+from datetime import datetime, timedelta, timezone
 
 
 def _server_module() -> Any:
@@ -129,5 +130,81 @@ def test_execute_order_returns_not_implemented_when_live_mode() -> None:
         result = server.submit_order(ctx, "binance", "BTCUSDT", "BUY", 25.0)
         assert result["ok"] is False
         assert result["error"] == "live_trading_not_implemented"
+    finally:
+        ctx.close()
+
+
+def test_get_market_price_and_symbol_list_shapes(monkeypatch) -> None:
+    server = _server_module()
+    ctx = server.create_server_context(_settings())
+    adapter = ctx.adapters["binance"]
+    monkeypatch.setattr(adapter, "ticker_price", lambda symbol: {"symbol": symbol, "price": "10"})
+    monkeypatch.setattr(
+        adapter,
+        "exchange_info",
+        lambda: {
+            "symbols": [
+                {
+                    "symbol": "BTCUSDT",
+                    "status": "TRADING",
+                    "baseAsset": "BTC",
+                    "quoteAsset": "USDT",
+                }
+            ]
+        },
+    )
+    try:
+        price = server.get_market_price(ctx, "binance", "btcusdt")
+        assert price["symbol"] == "btcusdt"
+        assert price["price"] == "10"
+        symbols = server.list_symbols(ctx, "binance", 10)
+        assert symbols[0]["symbol"] == "BTCUSDT"
+        assert symbols[0]["base_asset"] == "BTC"
+    finally:
+        ctx.close()
+
+
+def test_confirm_order_expired_and_missing() -> None:
+    server = _server_module()
+    ctx = server.create_server_context(_settings())
+    try:
+        missing = server.confirm_order(ctx, "unknown")
+        assert missing["ok"] is False
+        assert missing["error"] == "confirmation_not_found"
+
+        now = datetime.now(timezone.utc)
+        expired = server.PendingConfirmation(
+            confirmation_id="deadbeef",
+            action="submit_order",
+            payload={"dry_run": True},
+            created_at=now - timedelta(minutes=16),
+            expires_at=now - timedelta(minutes=1),
+        )
+        ctx.pending_confirmations["deadbeef"] = expired
+        result = server.confirm_order(ctx, "deadbeef")
+        assert result["ok"] is False
+        assert result["error"] == "confirmation_expired"
+        assert "deadbeef" not in ctx.pending_confirmations
+    finally:
+        ctx.close()
+
+
+def test_create_server_context_without_binance() -> None:
+    server = _server_module()
+    cfg = _settings()
+    no_exchange = cfg.__class__(
+        mcp_default_limit=cfg.mcp_default_limit,
+        mcp_max_limit=cfg.mcp_max_limit,
+        mcp_context_mode=cfg.mcp_context_mode,
+        dry_run=cfg.dry_run,
+        exchanges_enabled=["kraken"],
+        binance_api_base_url=cfg.binance_api_base_url,
+        binance_api_key=cfg.binance_api_key,
+        binance_api_secret=cfg.binance_api_secret,
+        require_confirmation_above_usd=cfg.require_confirmation_above_usd,
+    )
+    ctx = server.create_server_context(no_exchange)
+    try:
+        assert server.list_supported_exchanges(ctx) == []
     finally:
         ctx.close()
