@@ -56,3 +56,42 @@ def test_submit_order_over_threshold_requires_confirmation() -> None:
         assert confirmed["ok"] is True
     finally:
         ctx.close()
+
+
+def test_submit_order_rejects_invalid_side() -> None:
+    server = _server_module()
+    ctx = server.create_server_context(_settings())
+    try:
+        try:
+            server.submit_order(ctx, "binance", "BTCUSDT", "HOLD", 25.0)
+            raise AssertionError("expected ValueError")
+        except ValueError as exc:
+            assert str(exc) == "invalid_side"
+    finally:
+        ctx.close()
+
+
+def test_submit_order_rejects_non_positive_usd_size() -> None:
+    server = _server_module()
+    ctx = server.create_server_context(_settings())
+    try:
+        try:
+            server.submit_order(ctx, "binance", "BTCUSDT", "BUY", 0.0)
+            raise AssertionError("expected ValueError")
+        except ValueError as exc:
+            assert str(exc) == "invalid_usd_size"
+    finally:
+        ctx.close()
+
+
+def test_submit_order_rejects_empty_symbol() -> None:
+    server = _server_module()
+    ctx = server.create_server_context(_settings())
+    try:
+        try:
+            server.submit_order(ctx, "binance", "", "BUY", 25.0)
+            raise AssertionError("expected ValueError")
+        except ValueError as exc:
+            assert str(exc) == "invalid_symbol"
+    finally:
+        ctx.close()
