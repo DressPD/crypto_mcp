@@ -4,7 +4,9 @@
 
 Python requirement: `>=3.11`.
 
-## Goals
+For user-facing capability map, see: `docs/CAPABILITIES.MD`.
+
+## What this project does
 
 - Expose deterministic MCP tools over stdio.
 - Keep transport contract stable for LLM clients.
@@ -18,7 +20,19 @@ Python requirement: `>=3.11`.
 - `src/crypto_mcp/config.py`: Typed settings loader with sane defaults and clamps.
 - `src/crypto_mcp/adapters/binance.py`: Binance HTTP adapter abstraction.
 - `src/crypto_mcp/main.py`: Runnable MCP entrypoint.
-- `tests/`: MCP contract and adapter unit tests.
+- `tests/`: MCP contract, core server, and agent unit tests.
+
+Detailed architecture: `docs/ARCHITECTURE.MD`.
+
+## Capabilities quick table
+
+| Area | What it does | Main MCP tools |
+|---|---|---|
+| Runtime health | Reports service state, limits, mode, exchanges | `health` |
+| Exchange inventory | Lists adapter-backed exchanges | `list_exchanges` |
+| Market data | Fetches ticker prices and symbol lists | `get_price`, `list_exchange_symbols` |
+| Guarded execution | Submits demo orders with explicit confirmation gate | `submit_demo_order`, `confirm_pending_order` |
+| NL routing | Maps natural language to MCP tool calls | `crypto-mcp-agent` |
 
 Design pattern references taken from `polymarket_mcp`:
 
@@ -40,11 +54,28 @@ crypto-mcp-server
 crypto-mcp-agent
 ```
 
+Setup path-style variant:
+
+```bash
+cd /path/to/crypto_mcp
+python -m venv .venv
+source .venv/bin/activate
+pip install -e ".[dev]"
+cp .env.example .env
+```
+
 Alternative module runner:
 
 ```bash
 python -m crypto_mcp.main
+crypto-mcp
 ```
+
+## Safety defaults
+
+- `DRY_RUN=true`
+
+Default path is non-live demo execution.
 
 ## Run MCP server locally
 
@@ -61,6 +92,33 @@ npx @modelcontextprotocol/inspector python -m crypto_mcp.main
 ```
 
 Do not write `print()` logs inside stdio server paths. Use logging to stderr.
+
+Available MCP tools:
+
+- `health`
+- `list_exchanges`
+- `get_price`
+- `list_exchange_symbols`
+- `submit_demo_order`
+- `confirm_pending_order`
+
+Tool response envelope is consistent:
+
+- `ok`: boolean
+- `tool`: tool name
+- `error` + `error_category` on failures
+- tool-specific payload under `payload`
+
+MCP limits are controlled by:
+
+- `MCP_DEFAULT_LIMIT`
+- `MCP_MAX_LIMIT`
+- `MCP_CONTEXT_MODE` (`shared` or `request`)
+
+Order safety controls are controlled by:
+
+- `DRY_RUN`
+- `REQUIRE_CONFIRMATION_ABOVE_USD`
 
 ## Connect this MCP to clients
 
@@ -141,6 +199,9 @@ Then restart OpenCode session and verify tools:
 - `health`
 - `list_exchanges`
 - `get_price`
+- `list_exchange_symbols`
+- `submit_demo_order`
+- `confirm_pending_order`
 
 OpenCode install and usage:
 
@@ -172,6 +233,7 @@ Copy `.env.example` to `.env` and update values.
 - `MCP_CONTEXT_MODE` (`shared` or `request`)
 - `DRY_RUN` (`true`/`false`)
 - `EXCHANGES_ENABLED` (`binance` default)
+- `GEMINI_API_KEY` (optional, used by local NL routing layer)
 - `BINANCE_API_BASE_URL`
 - `BINANCE_API_KEY`, `BINANCE_API_SECRET`
 - `REQUIRE_CONFIRMATION_ABOVE_USD`
@@ -190,6 +252,12 @@ Trading flow tools (safety-gated):
 - `submit_demo_order`: validates side/symbol/size and creates pending confirmation above threshold.
 - `confirm_pending_order`: executes pending order if valid and not expired.
 
+Order confirmation flow:
+
+1. Call `submit_demo_order`.
+2. If payload has `status=pending_confirmation`, capture `confirmation_id`.
+3. Call `confirm_pending_order(confirmation_id)`.
+
 Contract:
 - deterministic response envelope: `{ok, tool, payload}` on success.
 - deterministic error envelope: `{ok, tool, error, error_category}` on failure.
@@ -198,8 +266,20 @@ Contract:
 ## Safety Notes
 
 - `submit_demo_order` never executes live orders; with `DRY_RUN=false` it returns `live_trading_not_implemented`.
-- `submit_order` requires explicit confirmation for large notional.
+- `submit_demo_order` requires explicit confirmation for large notional.
 - response shape never raises raw exceptions to MCP caller; errors are categorized.
+
+## Tests
+
+```bash
+python -m pytest
+```
+
+## Important notes
+
+- Local MCP stdio transport must keep stdout clean JSON-RPC only.
+- This project is starter infrastructure. Not trading advice.
+- Add stronger risk modules before real funds.
 
 ## Known improvement areas (scan summary)
 
