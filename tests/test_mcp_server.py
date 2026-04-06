@@ -1,5 +1,7 @@
 from typing import Any
 import importlib
+import sys
+import pytest
 
 
 def _mcp_server() -> Any:
@@ -192,3 +194,105 @@ def test_close_if_request_context_calls_close() -> None:
     ctx = _Ctx()
     server._close_if_request_context(ctx, True)
     assert ctx.closed is True
+
+
+def test_get_price_success_envelope(monkeypatch) -> None:
+    server = _mcp_server()
+    monkeypatch.setattr(
+        server,
+        "get_market_price",
+        lambda _ctx, exchange, symbol: {"exchange": exchange, "symbol": symbol, "price": "1"},
+    )
+    result = server.get_price("binance", "BTCUSDT")
+    assert result["ok"] is True
+    assert result["tool"] == "get_price"
+    assert result["payload"]["symbol"] == "BTCUSDT"
+
+
+def test_list_exchange_symbols_validation_error(monkeypatch) -> None:
+    server = _mcp_server()
+    monkeypatch.setattr(
+        server, "list_symbols", lambda *_args: (_ for _ in ()).throw(ValueError("invalid"))
+    )
+    result = server.list_exchange_symbols("binance", 1)
+    assert result["ok"] is False
+    assert result["tool"] == "list_exchange_symbols"
+    assert result["error"] == "invalid"
+    assert result["error_category"] == "validation"
+
+
+def test_submit_demo_order_internal_error(monkeypatch) -> None:
+    server = _mcp_server()
+    monkeypatch.setattr(
+        server, "submit_order", lambda *_args: (_ for _ in ()).throw(RuntimeError("crash"))
+    )
+    result = server.submit_demo_order(usd_size=25.0)
+    assert result["ok"] is False
+    assert result["tool"] == "submit_demo_order"
+    assert result["error"] == "crash"
+    assert result["error_category"] == "internal"
+
+
+def test_error_envelope_fields_present_consistently() -> None:
+    result = _mcp_server().confirm_pending_order("missing")
+    assert set(result.keys()) == {"ok", "tool", "error", "error_category"}
+    assert result["ok"] is False
+
+
+def test_main_closes_context(monkeypatch) -> None:
+    server = _mcp_server()
+    events: list[str] = []
+
+    class _MCP:
+        def run(self) -> None:
+            events.append("run")
+
+    class _CTX:
+        def close(self) -> None:
+            events.append("close")
+
+    monkeypatch.setattr(server, "mcp", _MCP())
+    monkeypatch.setattr(server, "_CTX", _CTX())
+    server.main()
+    assert events == ["run", "close"]
+
+
+def test_main_closes_context_on_run_error(monkeypatch) -> None:
+    server = _mcp_server()
+    events: list[str] = []
+
+    class _MCP:
+        def run(self) -> None:
+            events.append("run")
+            raise RuntimeError("boom")
+
+    class _CTX:
+        def close(self) -> None:
+            events.append("close")
+
+    monkeypatch.setattr(server, "mcp", _MCP())
+    monkeypatch.setattr(server, "_CTX", _CTX())
+    try:
+        server.main()
+        raise AssertionError("expected RuntimeError")
+    except RuntimeError:
+        pass
+    assert events == ["run", "close"]
+
+
+def test_fallback_fastmcp_class_when_package_missing(monkeypatch) -> None:
+    original_import_module = importlib.import_module
+
+    def _fake_import_module(name: str, package: str | None = None):
+        if name == "mcp.server.fastmcp":
+            raise ImportError("missing")
+        return original_import_module(name, package)
+
+    monkeypatch.setattr(importlib, "import_module", _fake_import_module)
+    sys.modules.pop("crypto_mcp.mcp_server", None)
+    fallback_module = importlib.import_module("crypto_mcp.mcp_server")
+    fake = fallback_module.FastMCP("x")
+    with pytest.raises(RuntimeError):
+        fake.run()
+    sys.modules.pop("crypto_mcp.mcp_server", None)
+    importlib.import_module("crypto_mcp.mcp_server")
